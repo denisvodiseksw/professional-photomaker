@@ -104,9 +104,6 @@ const TextareaField = ({ label, value, onChange, placeholder }: { label: string,
 );
 
 export default function App() {
-  const [hasKey, setHasKey] = useState(false);
-  const [isCheckingKey, setIsCheckingKey] = useState(true);
-  
   const [referenceImages, setReferenceImages] = useState<{data: string, mimeType: string}[]>([]);
   const [lightboxImage, setLightboxImage] = useState<SavedPortrait | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -124,17 +121,6 @@ export default function App() {
   const [customPrompt, setCustomPrompt] = useState('');
 
   useEffect(() => {
-    const checkKey = async () => {
-      if (window.aistudio?.hasSelectedApiKey) {
-        const selected = await window.aistudio.hasSelectedApiKey();
-        setHasKey(selected);
-      } else {
-        setHasKey(true);
-      }
-      setIsCheckingKey(false);
-    };
-    checkKey();
-    
     // Load saved portraits on mount
     getImagesFromDB().then(setSavedPortraits).catch(console.error);
 
@@ -162,13 +148,6 @@ export default function App() {
     window.addEventListener('paste', handlePaste);
     return () => window.removeEventListener('paste', handlePaste);
   }, []);
-
-  const handleSelectKey = async () => {
-    if (window.aistudio?.openSelectKey) {
-      await window.aistudio.openSelectKey();
-      setHasKey(true);
-    }
-  };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
@@ -204,7 +183,12 @@ export default function App() {
     setError(null);
 
     try {
-      const apiKey = process.env.GEMINI_API_KEY;
+      const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+      
+      if (!apiKey) {
+        throw new Error("Missing VITE_GEMINI_API_KEY environment variable.");
+      }
+
       const ai = new GoogleGenAI({ apiKey });
 
       const basePrompt = `Create a premium, high-end professional portrait photography of the person in the reference image(s). 
@@ -265,51 +249,11 @@ Style: Vanity Fair editorial style, modern luxury photobooth, high quality, 8k r
     } catch (err: any) {
       console.error(err);
       const errorMessage = err.message || "";
-      if (errorMessage.includes("Requested entity was not found") || errorMessage.includes("API key not valid") || errorMessage.includes("API_KEY_INVALID")) {
-        setHasKey(false);
-        setError("API Key error. Please select a valid API key from a paid Google Cloud project.");
-        if (window.aistudio?.openSelectKey) {
-          await window.aistudio.openSelectKey();
-          setHasKey(true);
-        }
-      } else {
-        setError(errorMessage || "Failed to generate images");
-      }
+      setError(errorMessage || "Failed to generate images");
     } finally {
       setIsGenerating(false);
     }
   };
-
-  if (isCheckingKey) {
-    return <div className="min-h-screen bg-[#F9F8F6] flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-black" /></div>;
-  }
-
-  if (!hasKey) {
-    return (
-      <div className="min-h-screen bg-[#F9F8F6] flex items-center justify-center p-4 font-sans text-[#1A1A1A]">
-        <div className="max-w-md w-full bg-white p-10 text-center border border-[#1A1A1A]/10 shadow-2xl">
-          <div className="w-16 h-16 border border-black rounded-full flex items-center justify-center mx-auto mb-8">
-            <Key className="w-6 h-6 text-black" strokeWidth={1.5} />
-          </div>
-          <h1 className="text-3xl font-serif mb-4">Studio Access</h1>
-          <p className="text-gray-500 mb-10 text-sm leading-relaxed">
-            To generate high-quality editorial portraits, please connect your Gemini API key from a paid Google Cloud project.
-          </p>
-          <button
-            onClick={handleSelectKey}
-            className="w-full bg-black hover:bg-gray-800 text-white text-xs uppercase tracking-[0.2em] font-medium py-4 transition-colors"
-          >
-            Authenticate
-          </button>
-          <p className="mt-6 text-xs text-gray-400">
-            <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noreferrer" className="underline hover:text-gray-800 transition-colors">
-              Learn more about billing
-            </a>
-          </p>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-[#F9F8F6] font-sans text-[#1A1A1A] selection:bg-black selection:text-white pb-20">
