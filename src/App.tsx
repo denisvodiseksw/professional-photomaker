@@ -235,7 +235,8 @@ Style: Vanity Fair editorial style, modern luxury photobooth, high quality, 8k r
 
         for (const part of response.candidates?.[0]?.content?.parts || []) {
           if (part.inlineData) {
-            const dataUrl = `data:image/png;base64,${part.inlineData.data}`;
+            const mimeType = part.inlineData.mimeType || 'image/png';
+            const dataUrl = `data:${mimeType};base64,${part.inlineData.data}`;
             await saveImageToDB(dataUrl); // Save to IndexedDB immediately
             return dataUrl;
           }
