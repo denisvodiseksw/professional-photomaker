@@ -17,7 +17,7 @@ declare global {
 }
 
 // --- IndexedDB Helper Functions ---
-const DB_NAME = 'SharonCoDB';
+const DB_NAME = 'LuminaDB';
 const STORE_NAME = 'portraits';
 
 interface SavedPortrait {
@@ -260,7 +260,7 @@ Style: Vanity Fair editorial style, modern luxury photobooth, high quality, 8k r
       {/* Header */}
       <header className="px-8 py-6 flex items-center justify-between border-b border-black/5 bg-white/50 backdrop-blur-md sticky top-0 z-20">
         <div className="flex items-center gap-3">
-          <span className="font-serif text-2xl tracking-wide">Sharon & Co.</span>
+          <span className="font-serif text-2xl tracking-wide">Lumina Studio</span>
         </div>
         <div className="text-[10px] uppercase tracking-[0.2em] text-gray-500 font-semibold hidden sm:block">
           Premium AI Portraits
@@ -499,7 +499,7 @@ Style: Vanity Fair editorial style, modern luxury photobooth, high quality, 8k r
                         <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center backdrop-blur-[2px]">
                           <a 
                             href={item.dataUrl} 
-                            download={`sharon-co-portrait-${item.id}.png`} 
+                            download={`lumina-portrait-${item.id}.png`} 
                             onClick={(e) => e.stopPropagation()}
                             className="bg-white text-black px-6 py-3 text-xs uppercase tracking-[0.2em] font-medium flex items-center gap-2 hover:bg-gray-100 transition-colors transform translate-y-4 group-hover:translate-y-0 duration-300"
                           >
