@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Upload, Image as ImageIcon, Loader2, Key, Download, Camera, Trash2, X, Film } from 'lucide-react';
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, HarmCategory, HarmBlockThreshold } from '@google/genai';
 
 declare global {
   interface Window {
@@ -85,6 +85,26 @@ const deleteImageFromDB = async (id: number): Promise<void> => {
     const request = store.delete(id);
     request.onsuccess = () => resolve();
     request.onerror = () => reject(request.error);
+  });
+};
+
+const resizeImageForVeo = (dataUrl: string): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 720;
+      canvas.height = 1280;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        reject(new Error('Could not get canvas context'));
+        return;
+      }
+      ctx.drawImage(img, 0, 0, 720, 1280);
+      resolve(canvas.toDataURL('image/jpeg', 0.95));
+    };
+    img.onerror = reject;
+    img.src = dataUrl;
   });
 };
 // ----------------------------------
@@ -311,12 +331,14 @@ Style: Vanity Fair editorial style, modern luxury photobooth, high quality, 8k r
 
       const ai = new GoogleGenAI({ apiKey });
 
-      const base64Data = item.dataUrl.split(',')[1];
-      const mimeType = item.dataUrl.split(';')[0].split(':')[1];
+      // Resize the image to exactly 720x1280 for Veo
+      const resizedDataUrl = await resizeImageForVeo(item.dataUrl);
+      const base64Data = resizedDataUrl.split(',')[1];
+      const mimeType = 'image/jpeg';
 
       let operation = await ai.models.generateVideos({
         model: 'veo-3.1-lite-generate-preview',
-        prompt: 'Subtle natural movement.',
+        prompt: "Cinematic portrait. The subject blinks naturally and tilts their head very slightly. The subject's mouth remains completely closed and their facial expression stays exactly the same as the original image. No smiling, no teeth showing. Extremely subtle micro-movements.",
         image: {
           imageBytes: base64Data,
           mimeType: mimeType,
@@ -324,7 +346,25 @@ Style: Vanity Fair editorial style, modern luxury photobooth, high quality, 8k r
         config: {
           numberOfVideos: 1,
           resolution: '720p',
-          aspectRatio: '9:16'
+          aspectRatio: '9:16',
+          safetySettings: [
+            {
+              category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+              threshold: HarmBlockThreshold.BLOCK_NONE,
+            },
+            {
+              category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+              threshold: HarmBlockThreshold.BLOCK_NONE,
+            },
+            {
+              category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+              threshold: HarmBlockThreshold.BLOCK_NONE,
+            },
+            {
+              category: HarmCategory.HARM_CATEGORY_HARASSMENT,
+              threshold: HarmBlockThreshold.BLOCK_NONE,
+            }
+          ]
         }
       });
 
@@ -340,7 +380,8 @@ Style: Vanity Fair editorial style, modern luxury photobooth, high quality, 8k r
       const downloadLink = operation.response?.generatedVideos?.[0]?.video?.uri;
       if (!downloadLink) {
         console.error("Operation:", operation);
-        throw new Error("Failed to get video URL. The image dimensions or safety filters may have blocked it.");
+        const responseStr = JSON.stringify(operation.response || {});
+        throw new Error(`Failed to get video URL. API Response: ${responseStr.substring(0, 150)}...`);
       }
 
       const response = await fetch(downloadLink, {
