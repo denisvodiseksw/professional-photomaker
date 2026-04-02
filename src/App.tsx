@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Upload, Image as ImageIcon, Loader2, Key, Download, Camera, Trash2, X } from 'lucide-react';
+import { Upload, Image as ImageIcon, Loader2, Key, Download, Camera, Trash2, X, Film } from 'lucide-react';
 import { GoogleGenAI } from '@google/genai';
 
 declare global {
@@ -24,6 +24,7 @@ interface SavedPortrait {
   id?: number;
   dataUrl: string;
   timestamp: number;
+  type?: 'image' | 'video';
 }
 
 const initDB = (): Promise<IDBDatabase> => {
@@ -40,12 +41,12 @@ const initDB = (): Promise<IDBDatabase> => {
   });
 };
 
-const saveImageToDB = async (dataUrl: string): Promise<number> => {
+const saveImageToDB = async (dataUrl: string, type: 'image' | 'video' = 'image'): Promise<number> => {
   const db = await initDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readwrite');
     const store = tx.objectStore(STORE_NAME);
-    const request = store.add({ dataUrl, timestamp: Date.now() });
+    const request = store.add({ dataUrl, timestamp: Date.now(), type });
     request.onsuccess = () => resolve(request.result as number);
     request.onerror = () => reject(request.error);
   });
@@ -107,6 +108,8 @@ export default function App() {
   const [referenceImages, setReferenceImages] = useState<{data: string, mimeType: string}[]>([]);
   const [lightboxImage, setLightboxImage] = useState<SavedPortrait | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isAnimating, setIsAnimating] = useState(false);
+  const [animatingId, setAnimatingId] = useState<number | null>(null);
   const [savedPortraits, setSavedPortraits] = useState<SavedPortrait[]>([]);
   const [error, setError] = useState<string | null>(null);
 
@@ -224,7 +227,7 @@ Style: Vanity Fair editorial style, modern luxury photobooth, high quality, 8k r
           },
           config: {
             imageConfig: {
-              aspectRatio: "3:4", // Better aspect ratio for portraits
+              aspectRatio: "9:16", // Matches Veo video aspect ratio perfectly
               imageSize: "1K"
             }
           }
@@ -252,6 +255,98 @@ Style: Vanity Fair editorial style, modern luxury photobooth, high quality, 8k r
       setError(errorMessage || "Failed to generate images");
     } finally {
       setIsGenerating(false);
+    }
+  };
+
+  const animatePortrait = async (item: SavedPortrait) => {
+    if (isAnimating) return;
+    if (item.type === 'video') {
+      setError("This is already a video.");
+      return;
+    }
+
+    const today = new Date().toISOString().split('T')[0];
+    const storedDate = localStorage.getItem('lumina_anim_date');
+    let count = parseInt(localStorage.getItem('lumina_anim_count') || '0', 10);
+
+    if (storedDate !== today) {
+      count = 0;
+      localStorage.setItem('lumina_anim_date', today);
+    }
+
+    if (count >= 3) {
+      setError("You've reached the daily limit of 3 animations.");
+      return;
+    }
+
+    setIsAnimating(true);
+    setAnimatingId(item.id!);
+    setError(null);
+
+    try {
+      const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+      if (!apiKey) {
+        throw new Error("Missing VITE_GEMINI_API_KEY environment variable.");
+      }
+
+      const ai = new GoogleGenAI({ apiKey });
+
+      const base64Data = item.dataUrl.split(',')[1];
+      const mimeType = item.dataUrl.split(';')[0].split(':')[1];
+
+      let operation = await ai.models.generateVideos({
+        model: 'veo-3.1-lite-generate-preview',
+        prompt: 'A professional portrait video with extremely subtle, natural movement. Gentle micro-expressions, maintaining eye contact. High-end editorial style.',
+        image: {
+          imageBytes: base64Data,
+          mimeType: mimeType,
+        },
+        config: {
+          numberOfVideos: 1,
+          resolution: '720p',
+          aspectRatio: '9:16'
+        }
+      });
+
+      while (!operation.done) {
+        await new Promise(resolve => setTimeout(resolve, 10000));
+        operation = await ai.operations.getVideosOperation({operation: operation});
+      }
+
+      if (operation.error) {
+        throw new Error(`Video generation failed: ${operation.error.message || 'Unknown error'}`);
+      }
+
+      const downloadLink = operation.response?.generatedVideos?.[0]?.video?.uri;
+      if (!downloadLink) {
+        console.error("Operation:", operation);
+        throw new Error("Failed to get video URL. The image dimensions or safety filters may have blocked it.");
+      }
+
+      const response = await fetch(downloadLink, {
+        method: 'GET',
+        headers: { 'x-goog-api-key': apiKey },
+      });
+
+      const blob = await response.blob();
+      const videoDataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+
+      await saveImageToDB(videoDataUrl, 'video');
+      const updatedPortraits = await getImagesFromDB();
+      setSavedPortraits(updatedPortraits);
+      
+      localStorage.setItem('lumina_anim_count', (count + 1).toString());
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || "Failed to animate portrait.");
+    } finally {
+      setIsAnimating(false);
+      setAnimatingId(null);
     }
   };
 
@@ -460,7 +555,18 @@ Style: Vanity Fair editorial style, modern luxury photobooth, high quality, 8k r
           {/* Right Column: Results */}
           <div className="lg:col-span-8">
             <div className="flex items-center justify-between mb-6">
-              <h2 className="font-serif text-3xl italic font-light">The Gallery</h2>
+              <div className="flex items-center gap-4">
+                <h2 className="font-serif text-3xl italic font-light">The Gallery</h2>
+                {isAnimating && (
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs uppercase tracking-widest text-blue-600 flex items-center gap-2 bg-blue-50 px-3 py-1.5 rounded-full">
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                      Animating...
+                    </span>
+                    <span className="text-[10px] text-gray-400 uppercase tracking-widest">Takes 1-2 mins</span>
+                  </div>
+                )}
+              </div>
               {savedPortraits.length > 0 && (
                 <button 
                   onClick={handleClearGallery}
@@ -489,23 +595,54 @@ Style: Vanity Fair editorial style, modern luxury photobooth, high quality, 8k r
                       className="group relative bg-white p-3 border border-gray-100 shadow-sm transition-all duration-500 hover:z-50 hover:scale-[1.15] hover:shadow-2xl hover:-translate-y-2"
                     >
                       <div className="overflow-hidden relative bg-gray-100 cursor-pointer" onClick={() => setLightboxImage(item)}>
-                        <img 
-                          src={item.dataUrl} 
-                          alt={`Generated portrait ${item.id}`} 
-                          className="w-full aspect-[3/4] object-cover" 
-                        />
+                        {item.type === 'video' ? (
+                          <video 
+                            src={item.dataUrl} 
+                            className="w-full aspect-[9/16] object-cover" 
+                            autoPlay 
+                            loop 
+                            muted 
+                            playsInline
+                          />
+                        ) : (
+                          <img 
+                            src={item.dataUrl} 
+                            alt={`Generated portrait ${item.id}`} 
+                            className="w-full aspect-[9/16] object-cover" 
+                          />
+                        )}
                         
                         {/* Hover Overlay */}
-                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center backdrop-blur-[2px]">
-                          <a 
-                            href={item.dataUrl} 
-                            download={`lumina-portrait-${item.id}.png`} 
-                            onClick={(e) => e.stopPropagation()}
-                            className="bg-white text-black px-6 py-3 text-xs uppercase tracking-[0.2em] font-medium flex items-center gap-2 hover:bg-gray-100 transition-colors transform translate-y-4 group-hover:translate-y-0 duration-300"
-                          >
-                            <Download className="w-4 h-4" />
-                            Save Print
-                          </a>
+                        <div className={`absolute inset-0 bg-black/40 transition-opacity duration-300 flex flex-col items-center justify-center backdrop-blur-[2px] gap-3 ${animatingId === item.id ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+                          {animatingId === item.id ? (
+                            <div className="flex flex-col items-center text-white">
+                              <Loader2 className="w-6 h-6 animate-spin mb-2" />
+                              <span className="text-[10px] uppercase tracking-widest font-medium">Animating...</span>
+                              <span className="text-[8px] text-white/70 uppercase tracking-widest mt-1">Takes 1-2 mins</span>
+                            </div>
+                          ) : (
+                            <>
+                              <a 
+                                href={item.dataUrl} 
+                                download={`lumina-portrait-${item.id}.${item.type === 'video' ? 'mp4' : 'png'}`} 
+                                onClick={(e) => e.stopPropagation()}
+                                className="bg-white text-black px-4 py-2.5 text-[10px] uppercase tracking-[0.2em] font-medium flex items-center gap-2 hover:bg-gray-100 transition-colors transform translate-y-4 group-hover:translate-y-0 duration-300 w-32 justify-center cursor-pointer"
+                              >
+                                <Download className="w-3.5 h-3.5" />
+                                Save
+                              </a>
+                              {item.type !== 'video' && (
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); animatePortrait(item); }}
+                                  disabled={isAnimating}
+                                  className="bg-black text-white px-4 py-2.5 text-[10px] uppercase tracking-[0.2em] font-medium flex items-center gap-2 hover:bg-gray-900 transition-colors transform translate-y-4 group-hover:translate-y-0 duration-300 disabled:opacity-50 disabled:cursor-not-allowed w-32 justify-center cursor-pointer"
+                                >
+                                  <Film className="w-3.5 h-3.5" />
+                                  Animate
+                                </button>
+                              )}
+                            </>
+                          )}
                         </div>
                       </div>
                       <div className="pt-4 text-center flex justify-between items-center px-2">
@@ -550,12 +687,25 @@ Style: Vanity Fair editorial style, modern luxury photobooth, high quality, 8k r
           >
             <X className="w-8 h-8" />
           </button>
-          <img 
-            src={lightboxImage.dataUrl} 
-            className="max-w-full max-h-full object-contain shadow-2xl" 
-            alt="Enlarged portrait" 
-            onClick={(e) => e.stopPropagation()} 
-          />
+          {lightboxImage.type === 'video' ? (
+            <video 
+              src={lightboxImage.dataUrl} 
+              className="max-w-full max-h-full object-contain shadow-2xl" 
+              controls
+              autoPlay
+              loop
+              muted
+              playsInline
+              onClick={(e) => e.stopPropagation()} 
+            />
+          ) : (
+            <img 
+              src={lightboxImage.dataUrl} 
+              className="max-w-full max-h-full object-contain shadow-2xl" 
+              alt="Enlarged portrait" 
+              onClick={(e) => e.stopPropagation()} 
+            />
+          )}
         </div>
       )}
     </div>
