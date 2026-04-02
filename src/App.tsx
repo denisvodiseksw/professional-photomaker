@@ -76,6 +76,17 @@ const clearImagesFromDB = async (): Promise<void> => {
     request.onerror = () => reject(request.error);
   });
 };
+
+const deleteImageFromDB = async (id: number): Promise<void> => {
+  const db = await initDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    const store = tx.objectStore(STORE_NAME);
+    const request = store.delete(id);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+};
 // ----------------------------------
 
 const SelectField = ({ label, value, onChange, options }: { label: string, value: string, onChange: (v: string) => void, options: string[] }) => (
@@ -177,6 +188,14 @@ export default function App() {
     if (window.confirm('Are you sure you want to delete all saved portraits?')) {
       await clearImagesFromDB();
       setSavedPortraits([]);
+    }
+  };
+
+  const handleDeleteSingle = async (id: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (window.confirm('Are you sure you want to delete this portrait?')) {
+      await deleteImageFromDB(id);
+      setSavedPortraits(prev => prev.filter(p => p.id !== id));
     }
   };
 
@@ -297,7 +316,7 @@ Style: Vanity Fair editorial style, modern luxury photobooth, high quality, 8k r
 
       let operation = await ai.models.generateVideos({
         model: 'veo-3.1-lite-generate-preview',
-        prompt: 'A professional portrait video with extremely subtle, natural movement. Gentle micro-expressions, maintaining eye contact. High-end editorial style.',
+        prompt: 'Subtle natural movement.',
         image: {
           imageBytes: base64Data,
           mimeType: mimeType,
@@ -596,6 +615,13 @@ Style: Vanity Fair editorial style, modern luxury photobooth, high quality, 8k r
                       className="group relative bg-white p-3 border border-gray-100 shadow-sm transition-all duration-500 hover:z-50 hover:scale-[1.15] hover:shadow-2xl hover:-translate-y-2"
                     >
                       <div className="overflow-hidden relative bg-gray-100 cursor-pointer" onClick={() => setLightboxImage(item)}>
+                        <button
+                          onClick={(e) => handleDeleteSingle(item.id!, e)}
+                          className="absolute top-2 right-2 bg-red-500/90 text-white p-1.5 rounded-full hover:bg-red-600 z-30 shadow-md opacity-0 group-hover:opacity-100 transition-opacity duration-300"
+                          title="Delete Portrait"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                         {item.type === 'video' ? (
                           <video 
                             src={item.dataUrl} 
